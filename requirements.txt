@@ -1,0 +1,14 @@
+geemap
+geopandas
+jupyter-server-proxy
+leafmap
+nbserverproxy
+owslib
+streamlit
+pandas
+streamlit
+streamlit_folium
+numpy
+folium
+kaleido
+fpdf
