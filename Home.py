@@ -9,6 +9,20 @@ import base64
 from tempfile import NamedTemporaryFile
 from streamlit_folium import folium_static
 import plotly.graph_objects as go
+import pandas as pd
+import numpy as np
+from hampel import hampel
+import scipy as sp
+import warnings 
+import pickle
+from sklearn.preprocessing import StandardScaler
+from math import sqrt
+from shapely.geometry import Point, Polygon, LineString, MultiLineString
+from data_processing import load_data_txt, load_data, classify_route, get_denoised_signal, create_binary_df, df_to_geojson_anomalies, signal_anomaly_neighborhood, df_to_geojson_neighborhood, predict_signal_h2, predict_signal_ch4, plot_geojson, path_plot_3d
+from PIL import Image
+
+warnings.filterwarnings("ignore")
+
 
 import glob
 import os
@@ -37,6 +51,22 @@ tile_providers = {
 
 
 # Funciones
+
+def plot_over_map(gdf_anomalies,df_1, gdf_neighborhood, select_variable):
+    stream_map = folium.Map(location=[6.2518400, -75.5635900], zoom_start=10, control_scale=True, tiles=select_tile_provider,locate_control=True, latlon_control=True, draw_export=True, minimap_control=True)
+    var_anomaly = select_variable + '_anomaly'
+    outliers = np.where(gdf_anomalies[var_anomaly] == 1)[0]  
+    flight_trajectory = np.where(gdf_anomalies[var_anomaly] == 0)[0]         
+    for i in outliers:
+        location = [gdf_anomalies.iloc[i].geometry.y, gdf_anomalies.iloc[i].geometry.x]
+        folium.CircleMarker(location=location, radius=12, color='red', fill=True, fill_color='red').add_to(stream_map)
+            
+    for i in flight_trajectory:
+        location = [gdf_anomalies.iloc[i].geometry.y, gdf_anomalies.iloc[i].geometry.x]
+        folium.CircleMarker(location=location, radius=5, color='blue', fill=True, fill_color='blue').add_to(stream_map) 
+    folium.LayerControl().add_to(stream_map)
+    folium_static(stream_map)
+
 def save_geojson_with_bytesio(dataframe):
     #Function to return bytesIO of the geojson
     shp = io.BytesIO()
@@ -58,76 +88,125 @@ def plot_points(data, size=10000, color='red'):
     folium_static(stream_map)
 
 
-st.title("GeoData Visualization Platform")
+
 
 #add upload data button in the sidebar for geojson files
-uploaded_file = st.sidebar.file_uploader("Carga los datos de la misión que quieras procesar y/o visualizar", type=["geojson"])
+uploaded_file = st.sidebar.file_uploader("Carga los datos de la misión que quieras procesar y/o visualizar", type=["txt","csv","geojson"])
+
+st.title("Plataforma de Visualización de Gases Atmosféricos")
+
+
+
+select_tile_provider = st.sidebar.selectbox('Select tile provider', list(tile_providers.keys()))
+gases=['CO', 'NO₂', 'Propano C₃H₈', 'Butano C₄H₁₀', 'Metano CH₄', 'H₂', 'Etanol C₂H₅OH']
+select_variable = st.sidebar.selectbox('Select variable', gases)
+
+
+
 if uploaded_file is not None:
-    gdf_mission = gpd.read_file(uploaded_file)
-    gdf_mission.rename(columns={'NO2': 'NO₂', 'C3H8': 'Propano C₃H₈', 'C4H10': 'Butano C₄H₁₀', 'CH4': 'Metano CH₄', 'H2': 'H₂', 'C2H5OH': 'Etanol C₂H₅OH'}, inplace=True)
+
+    mission_name = ''.join(filter(str.isdigit, uploaded_file.name))
+
+    day = mission_name[0:2]
+    month = mission_name[2:4]
+    year = mission_name[4:6]
+    date = day + '/' + month + '/' + year
+    st.header('Fecha de la misión: ' + date)
+
+    if uploaded_file.name.endswith('.txt'):
+        df_1 = load_data_txt(uploaded_file)
+        df_1.rename(columns={'T[C]': 'T_3','CO[ppm]': 'CO', 'NO2[ppm]': 'NO₂', 'C3H8(CO)[ppm]': 'Propano C₃H₈', 'Iso-butano(CO)[ppm]':'Butano C₄H₁₀', 'CH4(CO)[ppm]':'Metano CH₄', 'H2(NO2)[ppm]':'H₂', 'Etanol(CO)[ppm]':'Etanol C₂H₅OH'},inplace=True)
+    else: 
+        df_1 = pd.read_csv(uploaded_file)
+        df_1.rename(columns={'NO2': 'NO₂', 'C3H8': 'Propano C₃H₈', 'C4H10': 'Butano C₄H₁₀', 'CH4': 'Metano CH₄', 'H2': 'H₂', 'C2H5OH': 'Etanol C₂H₅OH'}, inplace=True)
+    
 
     # Botón para procesar los datos antes de visualizarlos
     if st.sidebar.button('Procesamiento'):
-        # add random noise to the data
-        gdf_mission['NO₂'] = gdf_mission['NO₂'] + np.random.normal(0, 0.1, len(gdf_mission))
-        st.session_state['gdf_mission'] = gdf_mission
+        # filtra la señal de los gases
+        df_denoised=get_denoised_signal(df_1,0.1,gases)
 
+        # actualiza las mediciones de los gases con la señal filtrada
+        df_1.loc[:, gases] = df_denoised[gases].values
+
+        st.subheader('Estadísticas descriptivas')
+        st.write(df_1.describe())
+
+        # crea un dataframe binario con las anomalías
+        df_1=create_binary_df(df_1,20,gases)
+
+        label=classify_route(df_1)
+
+        st.session_state['df_1'] = df_1
+        st.session_state['label'] = label
+
+        # crea un geojson con las anomalías
+        gpd_anomal=df_to_geojson_anomalies(df_1,df_1.columns)
+        st.session_state['gpd_anomal'] = gpd_anomal
+
+        # crea un dataframe con vecindarios y anomalías
+        signal_neigh=signal_anomaly_neighborhood(df_1,gases,3)
+        gdp_neigh=df_to_geojson_neighborhood(signal_neigh,gases)
+        st.session_state['gdp_neigh'] = gdp_neigh
+
+        # une los dos dataframes anteriores
+        gpd_merged=gpd_anomal.merge(gdp_neigh, on=['lat', 'lot', 'geometry'], how='left')
+
+        # Link de descarga del geojson
         st.sidebar.download_button(
         label="Descargar datos",
-        data=save_geojson_with_bytesio(gdf_mission),
+        data=save_geojson_with_bytesio(gpd_anomal),
         file_name=os.path.splitext(uploaded_file.name)[0]+'_processed.geojson',
         mime="application/geo+json",
         )  
-
-
-    select_tile_provider = st.sidebar.selectbox('Select tile provider', list(tile_providers.keys()))
-    select_variable = st.sidebar.selectbox('Select variable', list(gdf_mission.columns[~gdf_mission.columns.isin(['geometry','lat','lot'])]))
-    df = gdf_mission[[select_variable, 'lat', 'lot','geometry']]
-    st.session_state['df'] = df
-
-
-
+    
+       
 if st.sidebar.button('Visualizar'):
     figs = []
-    st.markdown(f"## Mapa de la misión {os.path.splitext(uploaded_file.name)[0]} para la variable {select_variable}")
-    plot_points(st.session_state['df'])
-    st.markdown('## Visualización de los datos')
-    st.line_chart(st.session_state['df'][select_variable],use_container_width=True)
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=st.session_state['df'].index,
-        y=st.session_state['df'][select_variable],
-        mode='lines+markers',
-        line=dict(color='#e74c3c', width=2),
-        marker=dict(symbol='circle',color='#3498db', size=5)
-    ))
+    plot_over_map(st.session_state['gpd_anomal'],st.session_state['df_1'],st.session_state['gdp_neigh'], select_variable)
+    if st.session_state['label'] == 1:
+        st.header('Ruta realizada por un helicóptero')
+        st.image('hipae.png')
+    else:
+        st.header('Ruta realizada por un aeroplano')
+        st.image('caravan.png')
+    _, fig = predict_signal_h2(st.session_state['df_1'],'Pipeline/models/linear_reg_mult_input_H2.sav',['Metano CH₄','CO','A_1','Propano C₃H₈','Butano C₄H₁₀','T_3'])
     figs.append(fig)
-    st.markdown(f"##Histograma de la variable {select_variable}")
-    fig = go.Figure()
-    fig.add_trace(go.Histogram(
-        x=df[select_variable],
-        marker_color='#3498db',
-        opacity=0.75
-    ))
+    st.pyplot(fig)
+   
+    _ , fig =  predict_signal_ch4(st.session_state['df_1'],'Pipeline/models/linear_reg_mult_input_CH4.sav',['A_1', 'CO', 'Propano C₃H₈', 'T_3', 'Etanol C₂H₅OH', 'Butano C₄H₁₀',])
     figs.append(fig)
-    st.bar_chart(st.session_state['df'][select_variable],use_container_width=True)
-    st.markdown(f"## {select_variable} Estadística descriptiva")
-    st.table(st.session_state['df'][select_variable].describe().round(2).transpose())
-    fig = go.Figure(data=[go.Table(
-        header=dict(values=['Estadístico','Valor'],
-                    line_color='darkslategray',
-                    align='left'),
-        cells=dict(values=[list(st.session_state['df'][select_variable].describe().round(2).index),
-                           list(st.session_state['df'][select_variable].describe().round(2).values)],
-                     line_color='darkslategray',
-                     align='left'))        
-    ])
-    figs.append(fig)
-    # x_grid, y_grid, z_grid = create_3d_grid(df,5)
-    # ax = plot_grid_and_points(df,x_grid, y_grid, z_grid, select_variable)
-    # st.pyplot(ax.figure)
-    st.session_state['figs'] = figs
+    st.pyplot(fig)
 
+
+    plots_dict = plot_geojson(st.session_state['gpd_anomal'],st.session_state['gdp_neigh'],gases)
+    for gas in gases:
+        # gráfica de anomalías
+        fig1 = plots_dict[gas+'_anomalies']
+        figs.append(fig1)
+        fig1.savefig("gas_anomaly.png")
+
+        # gráfica de vecindarios
+        fig2 = plots_dict[gas+'_neighborhoods']
+        figs.append(fig2)
+        fig2.savefig("gas_neighborhood.png")
+
+        # gráfica 3d
+        fig3 = path_plot_3d(st.session_state['df_1'],gas)
+        figs.append(fig3)
+        fig3.savefig("gas_3d.png")
+        
+        image1 = Image.open("gas_anomaly.png")
+        st.image(image1)
+        image2 = Image.open("gas_neighborhood.png")
+        #st.image(image2)
+        image3 = Image.open("gas_3d.png")
+        #st.image(image3)
+
+        os.remove("gas_anomaly.png")
+        os.remove("gas_neighborhood.png")
+        os.remove("gas_3d.png")
+    st.session_state['figs'] = figs
 
 export_as_pdf = st.button("Exportar Reporte en PDF")
 if export_as_pdf:
@@ -135,9 +214,9 @@ if export_as_pdf:
     for fig in st.session_state['figs']:
         pdf.add_page()
         with NamedTemporaryFile(delete=False, suffix='.png') as tmpfile:
-            fig.write_image(tmpfile.name)
+            fig.savefig(tmpfile.name)
             pdf.image(tmpfile.name,10,10,200,100)
-    html = create_download_link(pdf.output(dest="S").encode("latin-1"), "Reporte misión {} para la variable {}".format(os.path.splitext(uploaded_file.name)[0], select_variable))
+    html = create_download_link(pdf.output(dest="S").encode("latin-1"), "Reporte_misión_{}_para_la_variable_{}".format(os.path.splitext(uploaded_file.name)[0], select_variable))
     st.markdown(html, unsafe_allow_html=True)
 
 st.sidebar.title('Acerca')

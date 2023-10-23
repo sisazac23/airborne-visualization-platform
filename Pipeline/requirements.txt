@@ -1,12 +1,3 @@
-geemap
-jupyter-server-proxy
-leafmap
-nbserverproxy
-owslib
-streamlit
-streamlit_folium
-kaleido
-fpdf
 folium==0.14.0
 geopandas==0.12.2
 hampel==0.0.5
