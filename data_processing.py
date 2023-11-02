@@ -14,6 +14,41 @@ from shapely.geometry import Point, Polygon, LineString, MultiLineString
 from typing import Dict
 
 warnings.filterwarnings("ignore")
+from typing import List
+import pandas as pd
+
+def load_data_txt2(mission) -> pd.DataFrame:
+    # Reading first n_max lines
+    lines = [line.decode('latin-1').strip() for line in mission.readlines()]
+    
+    # Find the index containing "DATA STRUCTURE" to identify where columns start
+    index_data = next(i for i, line in enumerate(lines) if 'DATA' in line) + 1
+    
+    # Extract column names and clean them up
+    columns = lines[index_data].split(',')
+    columns[0] = 'Date'
+    columns[1] = 'Time'
+    
+    # Extract the data part of the file
+    data_lines = lines[index_data + 1:]
+    
+    # Convert data lines to lists of values
+    f_data = [line.split(',')[:-1] for line in data_lines]
+
+    
+    # Create DataFrame
+    if len(f_data[0]) == 30:
+        df = pd.DataFrame(f_data, columns=columns[:-1])
+    elif len(f_data[0]) == 31:
+        df = pd.DataFrame(f_data, columns=columns)
+    
+    # Convert columns to the appropriate data types
+    for col in df.columns[2:]:
+        df[col] = df[col].astype(float)
+
+    df.rename(columns={' speed [knots]': 'speed','Time':'time',' Altitude':'A_1',' Lon':'lot',' Lat':'lat',' T[CÂ°]': 'T_3',' CO[ppm]': 'CO', ' NO2[ppm]': 'NO₂', ' C3H8(CO)[ppm]': 'Propano C₃H₈', ' Iso-butano(CO)[ppm]':'Butano C₄H₁₀', ' CH4(CO)[ppm]':'Metano CH₄', ' H2(NO2)[ppm]':'H₂', ' Etanol(CO)[ppm]':'Etanol C₂H₅OH'}, inplace=True)
+        
+    return df
 
 
 #########Reading data##########
@@ -414,7 +449,7 @@ def predict_signal_h2(df,file,variables)-> pd.DataFrame:
     ax.legend()
 
     # Agregar un título al gráfico
-    ax.set_title('Predicción de la señal de H₂ y su intervalo de confianza')
+    ax.set_title('Estimación de la señal de H₂ y su intervalo de confianza')
 
     plt.show()
 
@@ -530,8 +565,6 @@ def df_to_geojson_neighborhood(df,gases,lat_='lat',lon_='lot',rad=0.1)-> gpd.Geo
 
 
 #######################Geopandas plotter#############################
-
-
 
 def plot_geojson(gdf_anomalies, gdf_neighborhood, gases, plot_anomalies=True, plot_neighborhood=True) -> Dict[str, plt.Figure]:
     plots_dict = {}

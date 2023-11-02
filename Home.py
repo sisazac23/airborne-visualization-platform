@@ -18,7 +18,7 @@ import pickle
 from sklearn.preprocessing import StandardScaler
 from math import sqrt
 from shapely.geometry import Point, Polygon, LineString, MultiLineString
-from data_processing import load_data_txt, load_data, classify_route, get_denoised_signal, create_binary_df, df_to_geojson_anomalies, signal_anomaly_neighborhood, df_to_geojson_neighborhood, predict_signal_h2, predict_signal_ch4, plot_geojson, path_plot_3d
+from data_processing import load_data_txt2, load_data_txt, load_data, classify_route, get_denoised_signal, create_binary_df, df_to_geojson_anomalies, signal_anomaly_neighborhood, df_to_geojson_neighborhood, predict_signal_h2, predict_signal_ch4, plot_geojson, path_plot_3d
 from PIL import Image
 
 warnings.filterwarnings("ignore")
@@ -91,7 +91,7 @@ def plot_points(data, size=10000, color='red'):
 
 
 #add upload data button in the sidebar for geojson files
-uploaded_file = st.sidebar.file_uploader("Carga los datos de la misión que quieras procesar y/o visualizar", type=["txt","csv","geojson"])
+uploaded_file = st.sidebar.file_uploader("Carga los datos de la misión que quieras procesar y/o visualizar", type=["txt","csv"])
 
 st.title("Plataforma de Visualización de Gases Atmosféricos")
 
@@ -102,63 +102,62 @@ gases=['CO', 'NO₂', 'Propano C₃H₈', 'Butano C₄H₁₀', 'Metano CH₄', 
 select_variable = st.sidebar.selectbox('Select variable', gases)
 
 
+import streamlit as st
+import pandas as pd
+import os
+
+
 
 if uploaded_file is not None:
+    try:
+        if uploaded_file.name.endswith('.txt') or uploaded_file.name.endswith('.TXT'):
+            df_1 = load_data_txt2(uploaded_file)
+        else: 
+            df_1 = pd.read_csv(uploaded_file)
+            df_1.rename(columns={'NO2': 'NO₂', 'C3H8': 'Propano C₃H₈', 'C4H10': 'Butano C₄H₁₀', 'CH4': 'Metano CH₄', 'H2': 'H₂', 'C2H5OH': 'Etanol C₂H₅OH'}, inplace=True)
+    except Exception as e:
+        st.error(f"Asegura que sean datos del sensor. Error al cargar los datos del archivo: {e}")
 
-    mission_name = ''.join(filter(str.isdigit, uploaded_file.name))
-
-    day = mission_name[0:2]
-    month = mission_name[2:4]
-    year = mission_name[4:6]
-    date = day + '/' + month + '/' + year
-    st.header('Fecha de la misión: ' + date)
-
-    if uploaded_file.name.endswith('.txt'):
-        df_1 = load_data_txt(uploaded_file)
-        df_1.rename(columns={'T[C]': 'T_3','CO[ppm]': 'CO', 'NO2[ppm]': 'NO₂', 'C3H8(CO)[ppm]': 'Propano C₃H₈', 'Iso-butano(CO)[ppm]':'Butano C₄H₁₀', 'CH4(CO)[ppm]':'Metano CH₄', 'H2(NO2)[ppm]':'H₂', 'Etanol(CO)[ppm]':'Etanol C₂H₅OH'},inplace=True)
-    else: 
-        df_1 = pd.read_csv(uploaded_file)
-        df_1.rename(columns={'NO2': 'NO₂', 'C3H8': 'Propano C₃H₈', 'C4H10': 'Butano C₄H₁₀', 'CH4': 'Metano CH₄', 'H2': 'H₂', 'C2H5OH': 'Etanol C₂H₅OH'}, inplace=True)
-    
-
-    # Botón para procesar los datos antes de visualizarlos
     if st.sidebar.button('Procesamiento'):
-        # filtra la señal de los gases
-        df_denoised=get_denoised_signal(df_1,0.1,gases)
+        try:
+            fecha_mision = df_1['Date'][0]
+            st.header(f'Fecha de la misión: {fecha_mision}')
+            df_denoised = get_denoised_signal(df_1, 0.1, gases)
+            df_1.loc[:, gases] = df_denoised[gases].values
+            st.subheader('Estadísticas descriptivas')
+            st.write(df_1.describe())
+            df_1 = create_binary_df(df_1, 20, gases)
+            label = classify_route(df_1)
+            st.session_state['df_1'] = df_1
+            st.session_state['label'] = label
+        except Exception as e:
+            st.error(f"Error durante el procesamiento de los datos: {e}")
 
-        # actualiza las mediciones de los gases con la señal filtrada
-        df_1.loc[:, gases] = df_denoised[gases].values
+        try:
+            gpd_anomal = df_to_geojson_anomalies(df_1, df_1.columns)
+            st.session_state['gpd_anomal'] = gpd_anomal
 
-        st.subheader('Estadísticas descriptivas')
-        st.write(df_1.describe())
+            signal_neigh = signal_anomaly_neighborhood(df_1, gases, 3)
+            gdp_neigh = df_to_geojson_neighborhood(signal_neigh, gases)
+            st.session_state['gdp_neigh'] = gdp_neigh
 
-        # crea un dataframe binario con las anomalías
-        df_1=create_binary_df(df_1,20,gases)
+            gpd_merged = gpd_anomal.merge(gdp_neigh, on=['lat', 'lot', 'geometry'], how='left')
+        except Exception as e:
+            st.error(f"Error al crear GeoJSONs o al unir DataFrames: {e}")
 
-        label=classify_route(df_1)
+        try:
+            # Asegúrate de que la función 'save_geojson_with_bytesio' esté correctamente definida
+            geojson_bytes = save_geojson_with_bytesio(gpd_anomal)
+            file_name = os.path.splitext(uploaded_file.name)[0] + '_processed.geojson'
+            st.sidebar.download_button(
+                label="Descargar datos",
+                data=geojson_bytes,
+                file_name=file_name,
+                mime="application/geo+json",
+            )
+        except Exception as e:
+            st.error(f"Error al preparar el archivo para la descarga: {e}")
 
-        st.session_state['df_1'] = df_1
-        st.session_state['label'] = label
-
-        # crea un geojson con las anomalías
-        gpd_anomal=df_to_geojson_anomalies(df_1,df_1.columns)
-        st.session_state['gpd_anomal'] = gpd_anomal
-
-        # crea un dataframe con vecindarios y anomalías
-        signal_neigh=signal_anomaly_neighborhood(df_1,gases,3)
-        gdp_neigh=df_to_geojson_neighborhood(signal_neigh,gases)
-        st.session_state['gdp_neigh'] = gdp_neigh
-
-        # une los dos dataframes anteriores
-        gpd_merged=gpd_anomal.merge(gdp_neigh, on=['lat', 'lot', 'geometry'], how='left')
-
-        # Link de descarga del geojson
-        st.sidebar.download_button(
-        label="Descargar datos",
-        data=save_geojson_with_bytesio(gpd_anomal),
-        file_name=os.path.splitext(uploaded_file.name)[0]+'_processed.geojson',
-        mime="application/geo+json",
-        )  
     
        
 if st.sidebar.button('Visualizar'):
@@ -166,10 +165,10 @@ if st.sidebar.button('Visualizar'):
     plot_over_map(st.session_state['gpd_anomal'],st.session_state['df_1'],st.session_state['gdp_neigh'], select_variable)
     if st.session_state['label'] == 1:
         st.header('Ruta realizada por un helicóptero')
-        st.image('hipae.png')
+        st.image('figures/hipae.png')
     else:
         st.header('Ruta realizada por un aeroplano')
-        st.image('caravan.png')
+        st.image('figures/caravan.png')
     _, fig = predict_signal_h2(st.session_state['df_1'],'Pipeline/models/linear_reg_mult_input_H2.sav',['Metano CH₄','CO','A_1','Propano C₃H₈','Butano C₄H₁₀','T_3'])
     figs.append(fig)
     st.pyplot(fig)
@@ -208,18 +207,21 @@ if st.sidebar.button('Visualizar'):
         os.remove("gas_3d.png")
     st.session_state['figs'] = figs
 
+ 
+
 export_as_pdf = st.button("Exportar Reporte en PDF")
 if export_as_pdf:
+    st.write('Exportando reporte en PDF')
     pdf = FPDF()
     for fig in st.session_state['figs']:
         pdf.add_page()
         with NamedTemporaryFile(delete=False, suffix='.png') as tmpfile:
             fig.savefig(tmpfile.name)
             pdf.image(tmpfile.name,10,10,200,100)
-    html = create_download_link(pdf.output(dest="S").encode("latin-1"), "Reporte_misión_{}_para_la_variable_{}".format(os.path.splitext(uploaded_file.name)[0], select_variable))
+    html = create_download_link(pdf.output(dest="S").encode("latin-1"), "reporte_mision_{}".format(os.path.splitext(uploaded_file.name)[0], select_variable))
     st.markdown(html, unsafe_allow_html=True)
 
 st.sidebar.title('Acerca')
 markdown = 'Plataforma para visualizar mediciones atmosféricas de gases contaminantes.'
 st.sidebar.info(markdown)
-st.sidebar.image('logo-eafit.png')
+st.sidebar.image('figures/logo-eafit.png')
