@@ -117,7 +117,7 @@ if uploaded_file is not None:
             df_1 = pd.read_csv(uploaded_file)
             df_1.rename(columns={'NO2': 'NO₂', 'C3H8': 'Propano C₃H₈', 'C4H10': 'Butano C₄H₁₀', 'CH4': 'Metano CH₄', 'H2': 'H₂', 'C2H5OH': 'Etanol C₂H₅OH'}, inplace=True)
     except Exception as e:
-        st.error(f"Asegura que sean datos del sensor. Error al cargar los datos del archivo: {e}")
+        st.error(f"Asegura que sean datos del sensor. Error al cargar los datos del archivo. Error: {e}")
 
     if st.sidebar.button('Procesamiento'):
         try:
@@ -132,7 +132,7 @@ if uploaded_file is not None:
             st.session_state['df_1'] = df_1
             st.session_state['label'] = label
         except Exception as e:
-            st.error(f"Error durante el procesamiento de los datos: {e}")
+            st.error(f"Error durante el procesamiento de los datos. Error: {e}")
 
         try:
             gpd_anomal = df_to_geojson_anomalies(df_1, df_1.columns)
@@ -157,7 +157,7 @@ if uploaded_file is not None:
                 mime="application/geo+json",
             )
         except Exception as e:
-            st.error(f"Error al preparar el archivo para la descarga: {e}")
+            st.error(f"Error al preparar el archivo para la descarga. Error: {e}")
 
     
        
@@ -220,20 +220,33 @@ if st.sidebar.button('Visualizar'):
 
 export_as_pdf = st.button("Exportar Reporte en PDF")
 if export_as_pdf:
-    st.write('Exportando reporte en PDF')
-    pdf = FPDF()
-    for fig in st.session_state['figs']:
-        pdf.add_page()
-        with NamedTemporaryFile(delete=False, suffix='.png') as tmpfile:
-            fig.savefig(tmpfile.name)
-            pdf.image(tmpfile.name,10,10,200,100)
-    for fig in st.session_state['figs_all_variables']:
-        pdf.add_page()
-        with NamedTemporaryFile(delete=False, suffix='.png') as tmpfile:
-            fig.write_image(tmpfile.name)
-            pdf.image(tmpfile.name,10,10,200,100)
-    html = create_download_link(pdf.output(dest="S").encode("latin-1"), "reporte_mision_{}".format(os.path.splitext(uploaded_file.name)[0], select_variable))
-    st.markdown(html, unsafe_allow_html=True)
+    try:
+        st.write('Exportando reporte en PDF')
+        pdf = FPDF()
+        
+        for fig in st.session_state['figs']:
+            pdf.add_page()
+            with NamedTemporaryFile(delete=False, suffix='.png') as tmpfile:
+                fig.savefig(tmpfile.name)
+                pdf.image(tmpfile.name, 10, 10, 200, 100)
+        
+        for fig in st.session_state['figs_all_variables']:
+            pdf.add_page()
+            with NamedTemporaryFile(delete=False, suffix='.png') as tmpfile:
+                fig.write_image(tmpfile.name)
+                pdf.image(tmpfile.name, 10, 10, 200, 100)
+        
+        # Assuming create_download_link is a function defined elsewhere
+        html = create_download_link(
+            pdf.output(dest="S").encode("latin-1"),
+            "reporte_mision_{}".format(
+                os.path.splitext(uploaded_file.name)[0], select_variable
+            )
+        )
+        st.markdown(html, unsafe_allow_html=True)
+
+    except Exception as e:
+        st.error(f'Visualiza primero las mediciones. Estas son las que se generan en el reporte. Error: {e}')
 
 st.sidebar.title('Acerca')
 markdown = 'Plataforma para visualizar mediciones atmosféricas de gases contaminantes.'
