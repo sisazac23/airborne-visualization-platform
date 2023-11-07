@@ -37,10 +37,7 @@ def load_data_txt2(mission) -> pd.DataFrame:
 
     
     # Create DataFrame
-    if len(f_data[0]) == 30:
-        df = pd.DataFrame(f_data, columns=columns[:-1])
-    elif len(f_data[0]) == 31:
-        df = pd.DataFrame(f_data, columns=columns)
+    df = pd.DataFrame(f_data, columns=columns)
     
     # Convert columns to the appropriate data types
     for col in df.columns[2:]:
@@ -445,7 +442,7 @@ def predict_signal_h2(df,file,variables)-> pd.DataFrame:
     
     ax.set_xlabel('Hora')
     ax.set_ylabel('H₂ [ppm]')
-    ax.set_xticks(df_pred['time'][::50])
+    ax.set_xticks(df_pred['time'][::250])
     ax.legend()
 
     # Agregar un título al gráfico
@@ -497,7 +494,7 @@ def predict_signal_ch4(df,file,variables)-> pd.DataFrame:
     ax.fill_between(df_pred['time'], df_pred['ch4_pred_lower'], df_pred['ch4_pred_upper'], alpha=0.3)
     ax.set_xlabel('Hora')
     ax.set_ylabel('Metano CH₄ [ppm]')
-    ax.set_xticks(df_pred['time'][::50])
+    ax.set_xticks(df_pred['time'][::250])
     ax.set_title('Señal de Metano CH₄ y su intervalo de confianza')
     ax.legend()
 
@@ -582,7 +579,7 @@ def plot_geojson(gdf_anomalies, gdf_neighborhood, gases, plot_anomalies=True, pl
             ax.plot(gdf_anomalies['time'][outliers], gas_measures[outliers], 'ro')
             ax.set_title('Anomalías ' + gas)
             ax.set_xlabel('Hora')
-            ax.set_xticks(gdf_anomalies['time'][::100])
+            ax.set_xticks(gdf_anomalies['time'][::250])
             ax.set_ylabel(gas+ ' [ppm]')
             ax.grid(True)
             
