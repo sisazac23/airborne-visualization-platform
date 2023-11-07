@@ -14,12 +14,15 @@ from shapely.geometry import Point, Polygon, LineString, MultiLineString
 from typing import Dict
 import pytz
 
-
 warnings.filterwarnings("ignore")
 from typing import List
 import pandas as pd
 
-def load_data_txt2(mission) -> pd.DataFrame:
+
+
+
+#########Reading data##########
+def load_data_txt(mission) -> pd.DataFrame:
     # Reading first n_max lines
     lines = [line.decode('latin-1').strip() for line in mission.readlines()]
     
@@ -46,7 +49,7 @@ def load_data_txt2(mission) -> pd.DataFrame:
         df[col] = df[col].astype(float)
 
     df.rename(columns={' speed [knots]': 'speed','Time':'time',' Altitude':'A_1',' Lon':'lot',' Lat':'lat',' T[CÂ°]': 'T_3',' CO[ppm]': 'CO', ' NO2[ppm]': 'NO₂', ' C3H8(CO)[ppm]': 'Propano C₃H₈', ' Iso-butano(CO)[ppm]':'Butano C₄H₁₀', ' CH4(CO)[ppm]':'Metano CH₄', ' H2(NO2)[ppm]':'H₂', ' Etanol(CO)[ppm]':'Etanol C₂H₅OH'}, inplace=True)
-    
+
     # Convert the time column to datetime
     df['time'] = pd.to_datetime(df['time'])
 
@@ -57,52 +60,7 @@ def load_data_txt2(mission) -> pd.DataFrame:
     df['time'] = df['time'].dt.tz_convert(pytz.FixedOffset(-300))  # UTC-5 is 300 minutes behind UTC
 
     # Extract time part only, without the date
-    
     df['time'] = df['time'].dt.strftime('%H:%M:%S.%f').str.slice(0, -3)
-    return df
-
-
-#########Reading data##########
-def load_data_txt(mission,n_max=2000) -> pd.DataFrame:
-    #Creating a list of lists and readin only the first 2000 lines 
-    data = []
-    for line in mission.readlines()[:n_max]:
-        line_str = line.decode("latin-1")
-        data.append(line_str.split())
-
-    ###Findind the variables among the list 
-    index_i=0
-    index_j=0
-
-    #Find the index where the list has the word "Date"
-    for i in range(len(data)):
-        line=data[i]
-        for j in range(len(line)):
-            if line[j]=="DATA":
-                index_i=i
-                index_j=j
-                # print(index_i, index_j)
-                break
-    data_true=data[index_i+1:]
-
-    columns=''
-    for i in range(len(data_true[0])):
-        columns=columns+data_true[0][i]
-    columns=columns.split(",")
-    columns[0]='Date'
-    columns[1]='time'
-
-    data_true=data_true[1:]
-    f_data=[]
-    #to remove the last element every list in the list
-    for i in range(len(data_true)):
-        temp=data_true[i][0].split(",")[:-1]
-        f_data.append(temp)    
-    #Creating a dataframe
-    df=pd.DataFrame(f_data,columns=columns)
-    #Transfom all the colums but the first to from str to float
-    for col in df.columns[2:]:
-        df[col]=df[col].astype(float)
     return df
 
 def load_data(path,mission)->None:

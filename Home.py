@@ -18,7 +18,7 @@ import pickle
 from sklearn.preprocessing import StandardScaler
 from math import sqrt
 from shapely.geometry import Point, Polygon, LineString, MultiLineString
-from data_processing import load_data_txt2, load_data_txt, load_data, classify_route, get_denoised_signal, create_binary_df, df_to_geojson_anomalies, signal_anomaly_neighborhood, df_to_geojson_neighborhood, predict_signal_h2, predict_signal_ch4, plot_geojson, path_plot_3d
+from data_processing import load_data_txt, load_data, classify_route, get_denoised_signal, create_binary_df, df_to_geojson_anomalies, signal_anomaly_neighborhood, df_to_geojson_neighborhood, predict_signal_h2, predict_signal_ch4, plot_geojson, path_plot_3d
 from PIL import Image
 
 warnings.filterwarnings("ignore")
@@ -111,7 +111,8 @@ import os
 if uploaded_file is not None:
     try:
         if uploaded_file.name.endswith('.txt') or uploaded_file.name.endswith('.TXT'):
-            df_1 = load_data_txt2(uploaded_file)
+            df_1 = load_data_txt(uploaded_file)
+            st.session_state['df_raw'] = df_1 
         else: 
             df_1 = pd.read_csv(uploaded_file)
             df_1.rename(columns={'NO2': 'NO₂', 'C3H8': 'Propano C₃H₈', 'C4H10': 'Butano C₄H₁₀', 'CH4': 'Metano CH₄', 'H2': 'H₂', 'C2H5OH': 'Etanol C₂H₅OH'}, inplace=True)
@@ -162,6 +163,7 @@ if uploaded_file is not None:
        
 if st.sidebar.button('Visualizar'):
     figs = []
+    figs_all_variables = []
     plot_over_map(st.session_state['gpd_anomal'],st.session_state['df_1'],st.session_state['gdp_neigh'], select_variable)
     if st.session_state['label'] == 1:
         st.header('Ruta realizada por un helicóptero')
@@ -205,8 +207,15 @@ if st.sidebar.button('Visualizar'):
         os.remove("gas_anomaly.png")
         os.remove("gas_neighborhood.png")
         os.remove("gas_3d.png")
-    st.session_state['figs'] = figs
 
+    for column in st.session_state['df_raw'].columns[2:]:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=st.session_state['df_raw']['time'], y=st.session_state['df_raw'][column], mode='lines', name=column))
+        fig.update_layout(title='{}'.format(column), xaxis_title='Tiempo', yaxis_title='{}'.format(column))
+        figs_all_variables.append(fig)
+
+    st.session_state['figs'] = figs
+    st.session_state['figs_all_variables'] = figs_all_variables
  
 
 export_as_pdf = st.button("Exportar Reporte en PDF")
@@ -217,6 +226,11 @@ if export_as_pdf:
         pdf.add_page()
         with NamedTemporaryFile(delete=False, suffix='.png') as tmpfile:
             fig.savefig(tmpfile.name)
+            pdf.image(tmpfile.name,10,10,200,100)
+    for fig in st.session_state['figs_all_variables']:
+        pdf.add_page()
+        with NamedTemporaryFile(delete=False, suffix='.png') as tmpfile:
+            fig.write_image(tmpfile.name)
             pdf.image(tmpfile.name,10,10,200,100)
     html = create_download_link(pdf.output(dest="S").encode("latin-1"), "reporte_mision_{}".format(os.path.splitext(uploaded_file.name)[0], select_variable))
     st.markdown(html, unsafe_allow_html=True)
