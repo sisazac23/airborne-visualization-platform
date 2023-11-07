@@ -12,6 +12,8 @@ from math import sqrt
 import geopandas as gpd
 from shapely.geometry import Point, Polygon, LineString, MultiLineString
 from typing import Dict
+import pytz
+
 
 warnings.filterwarnings("ignore")
 from typing import List
@@ -44,7 +46,19 @@ def load_data_txt2(mission) -> pd.DataFrame:
         df[col] = df[col].astype(float)
 
     df.rename(columns={' speed [knots]': 'speed','Time':'time',' Altitude':'A_1',' Lon':'lot',' Lat':'lat',' T[CÂ°]': 'T_3',' CO[ppm]': 'CO', ' NO2[ppm]': 'NO₂', ' C3H8(CO)[ppm]': 'Propano C₃H₈', ' Iso-butano(CO)[ppm]':'Butano C₄H₁₀', ' CH4(CO)[ppm]':'Metano CH₄', ' H2(NO2)[ppm]':'H₂', ' Etanol(CO)[ppm]':'Etanol C₂H₅OH'}, inplace=True)
-        
+    
+    # Convert the time column to datetime
+    df['time'] = pd.to_datetime(df['time'])
+
+    # Set the timezone to UTC
+    df['time'] = df['time'].dt.tz_localize(pytz.utc)
+
+    # Convert the timezone from UTC to UTC-5
+    df['time'] = df['time'].dt.tz_convert(pytz.FixedOffset(-300))  # UTC-5 is 300 minutes behind UTC
+
+    # Extract time part only, without the date
+    
+    df['time'] = df['time'].dt.strftime('%H:%M:%S.%f').str.slice(0, -3)
     return df
 
 
