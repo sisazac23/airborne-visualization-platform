@@ -122,6 +122,8 @@ if uploaded_file is not None:
     if st.sidebar.button('Procesamiento'):
         try:
             fecha_mision = df_1['Date'][0]
+            date = fecha_mision.split('-')
+            fecha_mision = date[2] + '/' + date[1] + '/20' + date[0]
             st.header(f'Fecha de la misión: {fecha_mision}')
             df_denoised = get_denoised_signal(df_1, 0.1, gases)
             df_1.loc[:, gases] = df_denoised[gases].values
